@@ -6,21 +6,46 @@ from pycox import models
 class _CoxCCBase(models.cox._CoxBase):
     make_dataset = NotImplementedError
 
-    def __init__(self, net, optimizer=None, device=None, shrink=0., loss=None):
+    def __init__(
+        self,
+        net,
+        sample_mode,
+        sample_value=None,
+        optimizer=None,
+        device=None,
+        shrink=0.0,
+        loss=None,
+    ):
         if loss is None:
             loss = models.loss.CoxCCLoss(shrink)
+        self.sample_mode = sample_mode
+        self.sample_value = sample_value
         super().__init__(net, loss, optimizer, device)
 
-    def fit(self, input, target, batch_size=256, epochs=1, callbacks=None, verbose=True,
-            num_workers=0, shuffle=True, metrics=None, val_data=None, val_batch_size=8224,
-            n_control=1, shrink=None, **kwargs):
+    def fit(
+        self,
+        input,
+        target,
+        batch_size=256,
+        epochs=1,
+        callbacks=None,
+        verbose=True,
+        num_workers=0,
+        shuffle=True,
+        metrics=None,
+        val_data=None,
+        val_batch_size=8224,
+        n_control=1,
+        shrink=None,
+        **kwargs,
+    ):
         """Fit  model with inputs and targets. Where 'input' is the covariates, and
         'target' is a tuple with (durations, events).
-        
+
         Arguments:
             input {np.array, tensor or tuple} -- Input x passed to net.
-            target {np.array, tensor or tuple} -- Target [durations, events]. 
-        
+            target {np.array, tensor or tuple} -- Target [durations, events].
+
         Keyword Arguments:
             batch_size {int} -- Elements in each batch (default: {256})
             epochs {int} -- Number of epochs (default: {1})
@@ -30,25 +55,39 @@ class _CoxCCBase(models.cox._CoxBase):
             shuffle {bool} -- If we should shuffle the order of the dataset (default: {True})
             n_control {int} -- Number of control samples.
             **kwargs are passed to 'make_dataloader' method.
-    
+
         Returns:
             TrainingLogger -- Training log
         """
         input, target = self._sorted_input_target(input, target)
         if shrink is not None:
             self.loss.shrink = shrink
-        return super().fit(input, target, batch_size, epochs, callbacks, verbose,
-                           num_workers, shuffle, metrics, val_data, val_batch_size,
-                           n_control=n_control, **kwargs)
+        return super().fit(
+            input,
+            target,
+            batch_size,
+            epochs,
+            callbacks,
+            verbose,
+            num_workers,
+            shuffle,
+            metrics,
+            val_data,
+            val_batch_size,
+            n_control,
+            **kwargs,
+        )
 
     def compute_metrics(self, input, metrics):
         if (self.loss is None) and (self.loss in metrics.values()):
-            raise RuntimeError(f"Need to specify a loss (self.loss). It's currently None")
+            raise RuntimeError(
+                f"Need to specify a loss (self.loss). It's currently None"
+            )
         input = self._to_device(input)
         batch_size = input.lens().flatten().get_if_all_equal()
         if batch_size is None:
             raise RuntimeError("All elements in input does not have the same length.")
-        case, control = input # both are TupleTree
+        case, control = input  # both are TupleTree
         input_all = tt.TupleTree((case,) + control).cat()
         g_all = self.net(*input_all)
         g_all = tt.tuplefy(g_all).split(batch_size).flatten()
@@ -60,42 +99,47 @@ class _CoxCCBase(models.cox._CoxBase):
     def make_dataloader_predict(self, input, batch_size, shuffle=False, num_workers=0):
         """Dataloader for prediction. The input is either the regular input, or a tuple
         with input and label.
-        
+
         Arguments:
             input {np.array, tensor, tuple} -- Input to net, or tuple with input and labels.
             batch_size {int} -- Batch size.
-        
+
         Keyword Arguments:
             shuffle {bool} -- If we should shuffle in the dataloader. (default: {False})
             num_workers {int} -- Number of worker in dataloader. (default: {0})
-        
+
         Returns:
             dataloader -- A dataloader.
         """
         dataloader = super().make_dataloader(input, batch_size, shuffle, num_workers)
         return dataloader
-    
-    def make_dataloader(self, data, batch_size, shuffle=True, num_workers=0, n_control=1):
+
+    def make_dataloader(
+        self, data, batch_size, shuffle=True, num_workers=0, n_control =1
+    ):
         """Dataloader for training. Data is on the form (input, target), where
         target is (durations, events).
-        
+
         Arguments:
             data {tuple} -- Tuple containing (input, (durations, events)).
             batch_size {int} -- Batch size.
-        
+
         Keyword Arguments:
             shuffle {bool} -- If shuffle in dataloader (default: {True})
             num_workers {int} -- Number of workers in dataloader. (default: {0})
             n_control {int} -- Number of control samples in dataloader (default: {1})
-        
+
         Returns:
             dataloader -- Dataloader for training.
         """
         input, target = self._sorted_input_target(*data)
         durations, events = target
-        dataset = self.make_dataset(input, durations, events, n_control)
-        dataloader = tt.data.DataLoaderBatch(dataset, batch_size=batch_size,
-                                             shuffle=shuffle, num_workers=num_workers)
+        dataset = self.make_dataset(
+            input, durations, events, self.sample_mode, self.sample_value, n_control
+        )
+        dataloader = tt.data.DataLoaderBatch(
+            dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers
+        )
         return dataloader
 
     @staticmethod
@@ -114,10 +158,10 @@ class CoxCC(_CoxCCBase, models.cox._CoxPHBase):
     """Cox proportional hazards model parameterized with a neural net and
     trained with case-control sampling [1].
     This is similar to DeepSurv, but use an approximation of the loss function.
-    
+
     Arguments:
         net {torch.nn.Module} -- A PyTorch net.
-    
+
     Keyword Arguments:
         optimizer {torch or torchtuples optimizer} -- Optimizer (default: {None})
         device {str, int, torch.device} -- Device to compute on. (default: {None})
@@ -132,4 +176,5 @@ class CoxCC(_CoxCCBase, models.cox._CoxPHBase):
         Journal of Machine Learning Research, 20(129):1–30, 2019.
         http://jmlr.org/papers/v20/18-424.html
     """
+
     make_dataset = models.data.CoxCCDataset
