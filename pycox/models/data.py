@@ -21,9 +21,7 @@ def sample_alive_from_dates(
     at_risk_dict: dict with at_risk_dict[time] = <array with index of alive in X matrix>.
     n_control: number of samples.
     """
-    lengths = np.array(
-        [at_risk_dict[x].shape[0] for x in dates]
-    ) 
+    lengths = np.array([at_risk_dict[x].shape[0] for x in dates])
     if sample_mode == "percentage":
         idx = (
             np.random.uniform(low=float(sample_value), size=(n_control, dates.size))
@@ -52,11 +50,11 @@ def sample_alive_from_dates(
                 )  # for each index in risk set: 1 when outside survial space
             indices_with_1 = np.where(durations_with_diff_per_date == 1.0)
             if len(indices_with_1[0]) < n_control:
-                idx = len(risks_d) - 1  # TODO change for higher n_control
+                idx = [len(risks_d) - 1] * n_control
             else:
                 idx = np.random.choice(indices_with_1[0], n_control)
             samp[j] = risks_d[idx]
-    elif sample_mode == "distribution":
+    elif sample_mode == "weighted":
         if durations_all is None:
             return
         samp = np.empty((dates.size, n_control), dtype=int)
@@ -64,16 +62,18 @@ def sample_alive_from_dates(
         for j, date in enumerate(dates):
             risks_d = at_risk_dict[date]
             durations_in_risk = durations_all[risks_d]
-            weights = [i / np.sum(durations_in_risk) for i in np.asarray(durations_in_risk).astype('float64')]  # normalizing
-            weights = np.asarray(weights).astype('float64')
-            weights /= weights.sum()  # normalizing again (because random.choice is picky)
+            weights = [
+                i / np.sum(durations_in_risk)
+                for i in np.asarray(durations_in_risk).astype("float64")
+            ]  # normalizing
+            weights = np.asarray(weights).astype("float64")
+            weights /= (
+                weights.sum()
+            )  # normalizing again (because random.choice is picky)
             idx = np.random.choice(a=lengths[j], size=n_control, p=weights)
             samp[j, :] = risks_d[idx]
 
     return samp
-
-def chooseIdx(length, sample_diff):
-    idx = np.random.uniform()
 
 
 def make_at_risk_dict(durations):
@@ -139,12 +139,6 @@ class CoxCCDataset(torch.utils.data.Dataset):
             self.durations_all,
             self.n_control,
         )
-        # control_idx = sample_alive_from_dates(
-        #     fails.values,
-        #     self.at_risk_dict,
-        #     self.n_control,
-        #     self.sample_mode
-        # )
         x_control = tt.TupleTree(
             self.input.iloc[idx] for idx in control_idx.transpose()
         )
