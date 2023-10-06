@@ -21,6 +21,7 @@ def sample_alive_from_dates(
     at_risk_dict: dict with at_risk_dict[time] = <array with index of alive in X matrix>.
     n_control: number of samples.
     """
+
     lengths = np.array([at_risk_dict[x].shape[0] for x in dates])
     if sample_mode == "percentage":
         idx = (
@@ -72,8 +73,27 @@ def sample_alive_from_dates(
             )  # normalizing again (because random.choice is picky)
             idx = np.random.choice(a=lengths[j], size=n_control, p=weights)
             samp[j, :] = risks_d[idx]
+    
+    # calculate baseline j
+    if durations_all is None:
+        return
+    samp_baseline = np.empty((dates.size, n_control), dtype=int)
+    for j, date in enumerate(dates):
+        risks_d = at_risk_dict[date]
+        durations_in_risk = durations_all[risks_d]
+        durations_with_diff_per_date = durations_in_risk
+        for i, duration in enumerate(durations_in_risk):
+            durations_with_diff_per_date[i] = duration >= date + float(
+                0
+            )  # for each index in risk set: 1 when outside survial space
+        indices_with_1 = np.where(durations_with_diff_per_date == 1.0)
+        if len(indices_with_1[0]) < n_control:
+            idx = [len(risks_d) - 1] * n_control
+        else:
+            idx = np.random.choice(indices_with_1[0], n_control)
+        samp_baseline[j] = risks_d[idx]
+    return samp, samp_baseline
 
-    return samp
 
 
 def make_at_risk_dict(durations):
@@ -131,7 +151,7 @@ class CoxCCDataset(torch.utils.data.Dataset):
             index = [index]
         fails = self.durations.iloc[index]
         x_case = self.input.iloc[fails.index]
-        control_idx = sample_alive_from_dates(
+        control_idx, control_idx_baseline = sample_alive_from_dates(
             fails.values,
             self.at_risk_dict,
             self.sample_mode,
@@ -139,10 +159,12 @@ class CoxCCDataset(torch.utils.data.Dataset):
             self.durations_all,
             self.n_control,
         )
+
         x_control = tt.TupleTree(
-            self.input.iloc[idx] for idx in control_idx.transpose()
-        )
-        return tt.tuplefy(x_case, x_control).to_tensor()
+            self.input.iloc[idx] for idx in control_idx.transpose())
+        x_control_baseline = tt.TupleTree(
+            self.input.iloc[idx] for idx in control_idx_baseline.transpose())
+        return tt.tuplefy(x_case, x_control).to_tensor(), tt.tuplefy(x_case, x_control_baseline).to_tensor()
 
     def __len__(self):
         return len(self.durations)
@@ -161,10 +183,13 @@ class CoxTimeDataset(CoxCCDataset):
         if not hasattr(index, "__iter__"):
             index = [index]
         durations = self.durations_tensor.iloc[index]
-        case, control = super().__getitem__(index)
-        case = case + durations
-        control = control.apply_nrec(lambda x: x + durations)
-        return tt.tuplefy(case, control)
+
+        (case_train, control_train), (case_val, control_val) = super().__getitem__(index)
+        case_train = case_train + durations
+        control_train = control_train.apply_nrec(lambda x: x + durations)
+        case_val = case_val + durations
+        control_val = control_val.apply_nrec(lambda x: x + durations)
+        return tt.tuplefy(case_train, control_train), tt.tuplefy(case_val, control_val)
 
 
 @numba.njit

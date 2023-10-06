@@ -87,13 +87,23 @@ class _CoxCCBase(models.cox._CoxBase):
         batch_size = input.lens().flatten().get_if_all_equal()
         if batch_size is None:
             raise RuntimeError("All elements in input does not have the same length.")
-        case, control = input  # both are TupleTree
+
+        (case, control), (case_baseline, control_baseline) = input
+
         input_all = tt.TupleTree((case,) + control).cat()
         g_all = self.net(*input_all)
         g_all = tt.tuplefy(g_all).split(batch_size).flatten()
         g_case = g_all[0]
         g_control = g_all[1:]
-        res = {name: metric(g_case, g_control) for name, metric in metrics.items()}
+
+        input_all_baseline = tt.TupleTree((case_baseline,) + control_baseline).cat()
+        g_all_baseline = self.net(*input_all_baseline)
+        g_all_baseline = tt.tuplefy(g_all_baseline).split(batch_size).flatten()
+        g_case_baseline = g_all_baseline[0]
+        g_control_baseline = g_all_baseline[1:]
+
+        res = {name: metric(g_case, g_control) if name == "loss" else metric(g_case_baseline, g_control_baseline) for name, metric in metrics.items()}
+
         return res
 
     def make_dataloader_predict(self, input, batch_size, shuffle=False, num_workers=0):
@@ -115,7 +125,7 @@ class _CoxCCBase(models.cox._CoxBase):
         return dataloader
 
     def make_dataloader(
-        self, data, batch_size, shuffle=True, num_workers=0, n_control =1
+        self, data, batch_size, shuffle=True, num_workers=0, n_control=1
     ):
         """Dataloader for training. Data is on the form (input, target), where
         target is (durations, events).
