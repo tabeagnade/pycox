@@ -44,10 +44,12 @@ def sample_alive_from_dates(
         for j, date in enumerate(dates):
             risks_d = at_risk_dict[date]
             durations_in_risk = durations_all[risks_d]
+            std_of_risk_set = np.std(durations_in_risk) 
+            min_diff = sample_value * std_of_risk_set
             durations_with_diff_per_date = durations_in_risk
             for i, duration in enumerate(durations_in_risk):
                 durations_with_diff_per_date[i] = duration >= date + float(
-                    sample_value
+                    min_diff
                 )  # for each index in risk set: 1 when outside survial space
             indices_with_1 = np.where(durations_with_diff_per_date == 1.0)
             if len(indices_with_1[0]) < n_control:
