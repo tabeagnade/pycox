@@ -43,6 +43,7 @@ class CoxTime(models.cox_cc._CoxCCBase):
         net,
         sample_mode,
         sample_value,
+        sd_per_time,
         optimizer=None,
         device=None,
         shrink=0.0,
@@ -51,7 +52,7 @@ class CoxTime(models.cox_cc._CoxCCBase):
     ):
         self.labtrans = labtrans
         super().__init__(
-            net, sample_mode, sample_value, optimizer, device, shrink, loss
+            net, sample_mode, sample_value, sd_per_time, optimizer, device, shrink, loss
         )
 
     def make_dataloader_predict(self, input, batch_size, shuffle=False, num_workers=0):

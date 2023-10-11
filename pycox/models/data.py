@@ -12,9 +12,12 @@ def is_float(string):
     except ValueError:
         return False
 
+def std_from_t(ds, t):
+    idt = np.argmin(abs(t - ds["duration"]))
+    return ds.iloc[idt]["std_surv"]
 
 def sample_alive_from_dates(
-    dates, at_risk_dict, sample_mode, sample_value, durations_all, n_control=1
+    dates, at_risk_dict, sample_mode, sample_value, sd_per_time, durations_all, n_control=1
 ):
     """Sample index from living at time given in dates.
     dates: np.array of times (or pd.Series).
@@ -41,15 +44,14 @@ def sample_alive_from_dates(
         if durations_all is None:
             return
         samp = np.empty((dates.size, n_control), dtype=int)
+        std_for_t_i = [std_from_t(sd_per_time, i) for i in dates] 
         for j, date in enumerate(dates):
             risks_d = at_risk_dict[date]
             durations_in_risk = durations_all[risks_d]
-            std_of_risk_set = np.std(durations_in_risk) 
-            min_diff = sample_value * std_of_risk_set
             durations_with_diff_per_date = durations_in_risk
             for i, duration in enumerate(durations_in_risk):
                 durations_with_diff_per_date[i] = duration >= date + float(
-                    min_diff
+                    sample_value * std_for_t_i[j]
                 )  # for each index in risk set: 1 when outside survial space
             indices_with_1 = np.where(durations_with_diff_per_date == 1.0)
             if len(indices_with_1[0]) < n_control:
@@ -135,13 +137,14 @@ class DurationSortedDataset(tt.data.DatasetTuple):
 
 class CoxCCDataset(torch.utils.data.Dataset):
     def __init__(
-        self, input, durations, events, sample_mode, sample_value, n_control=1
+        self, input, durations, events, sample_mode, sample_value, sd_per_time, n_control=1
     ):
         df_train_target = pd.DataFrame(dict(duration=durations, event=events))
         self.durations = df_train_target.loc[lambda x: x["event"] == 1]["duration"]
         self.at_risk_dict = make_at_risk_dict(durations)
         self.sample_mode = sample_mode
         self.sample_value = sample_value
+        self.sd_per_time = sd_per_time
         self.durations_all = durations
 
         self.input = tt.tuplefy(input)
@@ -158,6 +161,7 @@ class CoxCCDataset(torch.utils.data.Dataset):
             self.at_risk_dict,
             self.sample_mode,
             self.sample_value,
+            self.sd_per_time,
             self.durations_all,
             self.n_control,
         )
@@ -174,9 +178,9 @@ class CoxCCDataset(torch.utils.data.Dataset):
 
 class CoxTimeDataset(CoxCCDataset):
     def __init__(
-        self, input, durations, events, sample_mode, sample_value, n_control=1
+        self, input, durations, events, sample_mode, sample_value, sd_per_time, n_control=1
     ):
-        super().__init__(input, durations, events, sample_mode, sample_value, n_control)
+        super().__init__(input, durations, events, sample_mode, sample_value, sd_per_time, n_control)
         self.durations_tensor = tt.tuplefy(
             self.durations.values.reshape(-1, 1)
         ).to_tensor()

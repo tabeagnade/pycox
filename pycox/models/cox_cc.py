@@ -11,6 +11,7 @@ class _CoxCCBase(models.cox._CoxBase):
         net,
         sample_mode,
         sample_value=None,
+        sd_per_time=None,
         optimizer=None,
         device=None,
         shrink=0.0,
@@ -20,6 +21,7 @@ class _CoxCCBase(models.cox._CoxBase):
             loss = models.loss.CoxCCLoss(shrink)
         self.sample_mode = sample_mode
         self.sample_value = sample_value
+        self.sd_per_time = sd_per_time
         super().__init__(net, loss, optimizer, device)
 
     def fit(
@@ -145,7 +147,7 @@ class _CoxCCBase(models.cox._CoxBase):
         input, target = self._sorted_input_target(*data)
         durations, events = target
         dataset = self.make_dataset(
-            input, durations, events, self.sample_mode, self.sample_value, n_control
+            input, durations, events, self.sample_mode, self.sample_value, self.sd_per_time, n_control
         )
         dataloader = tt.data.DataLoaderBatch(
             dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers
