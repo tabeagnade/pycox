@@ -81,6 +81,21 @@ def sample_alive_from_dates(
             else:
                 idx = np.random.choice(indices_with_1[0], n_control)
             samp[j] = risks_d[idx]
+    elif sample_mode == "diff":
+        for j, date in enumerate(dates):
+            risks_d = at_risk_dict[date]
+            durations_in_risk = durations_all[risks_d]
+            durations_with_diff_per_date = durations_in_risk
+            for i, duration in enumerate(durations_in_risk):
+                durations_with_diff_per_date[i] = duration >= date + float(
+                    sample_value
+                )  # for each index in risk set: 1 when outside survial space
+            indices_with_1 = np.where(durations_with_diff_per_date == 1.0)
+            if len(indices_with_1[0]) < n_control:
+                idx = [len(risks_d) - 1] * n_control
+            else:
+                idx = np.random.choice(indices_with_1[0], n_control)
+            samp[j] = risks_d[idx]
     elif sample_mode == "weighted":
         for j, date in enumerate(dates):
             risks_d = at_risk_dict[date]
