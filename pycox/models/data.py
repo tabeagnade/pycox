@@ -20,10 +20,7 @@ def std_from_t(ds: pd.DataFrame, t: float):
     Returns:
         float: rolling std of `_t` such that `_t` is closest to `t` in `ds`.
     """
-    try:
-        idt = np.argmin(abs(t - ds["duration"]))
-    except IndexError:
-        set_trace()
+    idt = np.argmin(abs(t - ds["duration"]))
     return ds.iloc[idt]["std_surv"]
 
 
@@ -187,8 +184,8 @@ class CoxCCDataset(torch.utils.data.Dataset):
             self.at_risk_dict,
             self.sample_mode,
             self.sample_value,
-            self.sd_per_time,
             self.durations_all,
+            self.sd_per_time,
             self.n_control,
         )
 
