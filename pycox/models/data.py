@@ -1,50 +1,75 @@
-import numpy as np
-import pandas as pd
+from typing import Literal, Optional
+
 import numba
+import numpy as np
+import numpy.typing as npt
+import pandas as pd
 import torch
+from IPython.core.debugger import set_trace
+
 import torchtuples as tt
 
 
-def is_float(string):
-    try:
-        float(string)
-        return True
-    except ValueError:
-        return False
+def std_from_t(ds: pd.DataFrame, t: float):
+    """Rolling stdev closest from t.
 
-def std_from_t(ds, t):
-    idt = np.argmin(abs(t - ds["duration"]))
+    Args:
+        ds (pd.DataFrame): Dataframe. Must contain "duration" and "std_surv" columns.
+        t (float): Time.
+
+    Returns:
+        float: rolling std of `_t` such that `_t` is closest to `t` in `ds`.
+    """
+    try:
+        idt = np.argmin(abs(t - ds["duration"]))
+    except IndexError:
+        set_trace()
     return ds.iloc[idt]["std_surv"]
 
-def sample_alive_from_dates(
-    dates, at_risk_dict, sample_mode, sample_value, sd_per_time, durations_all, n_control=1
-):
-    """Sample index from living at time given in dates.
-    dates: np.array of times (or pd.Series).
-    at_risk_dict: dict with at_risk_dict[time] = <array with index of alive in X matrix>.
-    n_control: number of samples.
-    """
 
+def sample_alive_from_dates(
+    dates: pd.Series,
+    at_risk_dict: dict,
+    sample_mode: Literal["diff", "weighted", "percentage", "adadiff"],
+    sample_value: float,
+    durations_all: npt.ArrayLike,
+    sd_per_time: Optional[pd.DataFrame] = None,
+    n_control: int = 1,
+):
+    """Sample index from (eventually a subset of) living at time given in dates.
+
+    Args:
+        dates (pd.Series): Times
+        at_risk_dict (dict): Array with index of alive in X matrix. Has a "time" entry.
+        sample_mode (Literal["diff", "weighted", "percentage", "adadiff"]): Heuristic to subsample from the risk set.
+        sample_value (float): Hyperparameter attached to `sample_mode`.
+        durations_all (npt.ArrayLike): _description_
+        sd_per_time (Optional[pd.DataFrame], optional): Dataframe of rolling standard deviation. Needed for "adadiff" only. Defaults to None.
+        n_control (int, optional): Number of samples. Defaults to 1.
+
+    Raises:
+        ValueError: _description_
+
+    Returns:
+        _type_: _description_
+    """
     lengths = np.array([at_risk_dict[x].shape[0] for x in dates])
+    samp = np.empty((dates.size, n_control), dtype=int)
+    samp.fill(np.nan)
     if sample_mode == "percentage":
-        idx = (
-            np.random.uniform(low=float(sample_value), size=(n_control, dates.size))
-            * (lengths - 1)
-        ).astype(
-            "int"
-        )  # just last percentage
-        samp = np.empty((dates.size, n_control), dtype=int)
-        samp.fill(np.nan)
+        idx = np.random.uniform(
+            low=float(sample_value), size=(n_control, dates.size)
+        ) * (lengths - 1)
+        idx = idx.astype("int")  # just last percentage
 
         for it, time in enumerate(dates):
             samp[it, :] = at_risk_dict[time][
                 idx[:, it]
             ]  # give index of randomely chosen element of the alives
-    elif sample_mode == "diff":
-        if durations_all is None:
-            return
-        samp = np.empty((dates.size, n_control), dtype=int)
-        std_for_t_i = [std_from_t(sd_per_time, i) for i in dates] 
+    elif sample_mode == "adadiff":
+        if sd_per_time is None:
+            raise ValueError("Should provide `sd_pertime` in this case.")
+        std_for_t_i = [std_from_t(sd_per_time, i) for i in dates]
         for j, date in enumerate(dates):
             risks_d = at_risk_dict[date]
             durations_in_risk = durations_all[risks_d]
@@ -60,10 +85,6 @@ def sample_alive_from_dates(
                 idx = np.random.choice(indices_with_1[0], n_control)
             samp[j] = risks_d[idx]
     elif sample_mode == "weighted":
-        if durations_all is None:
-            return
-        samp = np.empty((dates.size, n_control), dtype=int)
-        samp.fill(np.nan)
         for j, date in enumerate(dates):
             risks_d = at_risk_dict[date]
             durations_in_risk = durations_all[risks_d]
@@ -77,10 +98,8 @@ def sample_alive_from_dates(
             )  # normalizing again (because random.choice is picky)
             idx = np.random.choice(a=lengths[j], size=n_control, p=weights)
             samp[j, :] = risks_d[idx]
-    
+
     # calculate baseline j
-    if durations_all is None:
-        return
     samp_baseline = np.empty((dates.size, n_control), dtype=int)
     for j, date in enumerate(dates):
         risks_d = at_risk_dict[date]
@@ -96,8 +115,8 @@ def sample_alive_from_dates(
         else:
             idx = np.random.choice(indices_with_1[0], n_control)
         samp_baseline[j] = risks_d[idx]
-    return samp, samp_baseline
 
+    return samp, samp_baseline
 
 
 def make_at_risk_dict(durations):
@@ -137,7 +156,14 @@ class DurationSortedDataset(tt.data.DatasetTuple):
 
 class CoxCCDataset(torch.utils.data.Dataset):
     def __init__(
-        self, input, durations, events, sample_mode, sample_value, sd_per_time, n_control=1
+        self,
+        input,
+        durations: npt.ArrayLike,
+        events: npt.ArrayLike,
+        sample_mode: Literal["diff", "weighted", "percentage", "adadiff"],
+        sample_value: float,
+        sd_per_time: Optional[pd.DataFrame] = None,
+        n_control: int = 1,
     ):
         df_train_target = pd.DataFrame(dict(duration=durations, event=events))
         self.durations = df_train_target.loc[lambda x: x["event"] == 1]["duration"]
@@ -167,10 +193,15 @@ class CoxCCDataset(torch.utils.data.Dataset):
         )
 
         x_control = tt.TupleTree(
-            self.input.iloc[idx] for idx in control_idx.transpose())
+            self.input.iloc[idx] for idx in control_idx.transpose()
+        )
         x_control_baseline = tt.TupleTree(
-            self.input.iloc[idx] for idx in control_idx_baseline.transpose())
-        return tt.tuplefy(x_case, x_control).to_tensor(), tt.tuplefy(x_case, x_control_baseline).to_tensor()
+            self.input.iloc[idx] for idx in control_idx_baseline.transpose()
+        )
+        return (
+            tt.tuplefy(x_case, x_control).to_tensor(),
+            tt.tuplefy(x_case, x_control_baseline).to_tensor(),
+        )
 
     def __len__(self):
         return len(self.durations)
@@ -178,9 +209,18 @@ class CoxCCDataset(torch.utils.data.Dataset):
 
 class CoxTimeDataset(CoxCCDataset):
     def __init__(
-        self, input, durations, events, sample_mode, sample_value, sd_per_time, n_control=1
+        self,
+        input,
+        durations: npt.ArrayLike,
+        events: npt.ArrayLike,
+        sample_mode: Literal["diff", "weighted", "percentage", "adadiff"],
+        sample_value: float,
+        sd_per_time: pd.DataFrame = None,
+        n_control: int = 1,
     ):
-        super().__init__(input, durations, events, sample_mode, sample_value, sd_per_time, n_control)
+        super().__init__(
+            input, durations, events, sample_mode, sample_value, sd_per_time, n_control
+        )
         self.durations_tensor = tt.tuplefy(
             self.durations.values.reshape(-1, 1)
         ).to_tensor()
@@ -190,7 +230,9 @@ class CoxTimeDataset(CoxCCDataset):
             index = [index]
         durations = self.durations_tensor.iloc[index]
 
-        (case_train, control_train), (case_val, control_val) = super().__getitem__(index)
+        (case_train, control_train), (case_val, control_val) = super().__getitem__(
+            index
+        )
         case_train = case_train + durations
         control_train = control_train.apply_nrec(lambda x: x + durations)
         case_val = case_val + durations

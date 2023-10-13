@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 import torch
-from torch import nn
 import torchtuples as tt
+from torch import nn
 
 from pycox import models
 from pycox.preprocessing.label_transforms import LabTransCoxTime
@@ -43,7 +43,7 @@ class CoxTime(models.cox_cc._CoxCCBase):
         net,
         sample_mode,
         sample_value,
-        sd_per_time,
+        sd_per_time=None,
         optimizer=None,
         device=None,
         shrink=0.0,
