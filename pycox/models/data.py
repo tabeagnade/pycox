@@ -66,7 +66,9 @@ def sample_alive_from_dates(
     elif sample_mode == "adadiff":
         if sd_per_time is None:
             raise ValueError("Should provide `sd_pertime` in this case.")
-        std_for_t_i = [std_from_t(sd_per_time, i) for i in dates]
+        std_for_t_i = [
+            std_from_t(sd_per_time, i) for i in dates
+        ]  # rolling standard deviation corresponding to i
         for j, date in enumerate(dates):
             risks_d = at_risk_dict[date]
             durations_in_risk = durations_all[risks_d]
@@ -82,13 +84,14 @@ def sample_alive_from_dates(
                 idx = np.random.choice(indices_with_1[0], n_control)
             samp[j] = risks_d[idx]
     elif sample_mode == "diff":
+        std = np.std(durations_all)  # standard deviation of all train set
         for j, date in enumerate(dates):
             risks_d = at_risk_dict[date]
             durations_in_risk = durations_all[risks_d]
             durations_with_diff_per_date = durations_in_risk
             for i, duration in enumerate(durations_in_risk):
                 durations_with_diff_per_date[i] = duration >= date + float(
-                    sample_value
+                    sample_value * std
                 )  # for each index in risk set: 1 when outside survial space
             indices_with_1 = np.where(durations_with_diff_per_date == 1.0)
             if len(indices_with_1[0]) < n_control:
