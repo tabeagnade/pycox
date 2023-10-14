@@ -30,6 +30,7 @@ def sample_alive_from_dates(
     sample_mode: Literal["diff", "weighted", "percentage", "adadiff"],
     sample_value: float,
     durations_all: npt.ArrayLike,
+    durations_survival: npt.ArrayLike,
     sd_per_time: Optional[pd.DataFrame] = None,
     n_control: int = 1,
 ):
@@ -84,7 +85,7 @@ def sample_alive_from_dates(
                 idx = np.random.choice(indices_with_1[0], n_control)
             samp[j] = risks_d[idx]
     elif sample_mode == "diff":
-        std = np.std(durations_all)  # standard deviation of all train set
+        std = np.std(durations_survival)  # standard deviation of all train set
         for j, date in enumerate(dates):
             risks_d = at_risk_dict[date]
             durations_in_risk = durations_all[risks_d]
@@ -203,6 +204,7 @@ class CoxCCDataset(torch.utils.data.Dataset):
             self.sample_mode,
             self.sample_value,
             self.durations_all,
+            self.durations,
             self.sd_per_time,
             self.n_control,
         )
