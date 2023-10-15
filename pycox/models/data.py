@@ -5,9 +5,11 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import torch
-from IPython.core.debugger import set_trace
-
 import torchtuples as tt
+
+# for debugging
+# from codetiming import Timer
+# from IPython.core.debugger import set_trace
 
 
 def std_from_t(ds: pd.DataFrame, t: float):
@@ -51,9 +53,13 @@ def sample_alive_from_dates(
     Returns:
         _type_: _description_
     """
+    # # initialization
     lengths = np.array([at_risk_dict[x].shape[0] for x in dates])
     samp = np.empty((dates.size, n_control), dtype=int)
     samp.fill(np.nan)
+    # heuristic
+    # # real work
+    # with Timer(name=f"{sample_mode}-heuristic", text="{name}: {milliseconds:.3f} ms"):
     if sample_mode == "percentage":
         idx = np.random.uniform(
             low=float(sample_value), size=(n_control, dates.size)
@@ -64,37 +70,25 @@ def sample_alive_from_dates(
             samp[it, :] = at_risk_dict[time][
                 idx[:, it]
             ]  # give index of randomely chosen element of the alives
-    elif sample_mode == "adadiff":
-        if sd_per_time is None:
-            raise ValueError("Should provide `sd_pertime` in this case.")
-        std_for_t_i = [
-            std_from_t(sd_per_time, i) for i in dates
-        ]  # rolling standard deviation corresponding to i
+    elif sample_mode in [
+        "diff, " "adadiff"
+    ]:  # same method, only std is adapted in "adadiff"
+        if sample_mode == "adadiff":
+            if sd_per_time is None:
+                raise ValueError("Should provide `sd_pertime` in this case.")
+            std_for_t_i = [
+                std_from_t(sd_per_time, i) for i in dates
+            ]  # rolling standard deviation corresponding to i
+            get_thresh = lambda j: std_for_t_i[j]
+        else:
+            std = np.std(durations_survival)  # standard deviation of all train set
+            get_thresh = lambda j: std
         for j, date in enumerate(dates):
             risks_d = at_risk_dict[date]
             durations_in_risk = durations_all[risks_d]
-            durations_with_diff_per_date = durations_in_risk
-            for i, duration in enumerate(durations_in_risk):
-                durations_with_diff_per_date[i] = duration >= date + float(
-                    sample_value * std_for_t_i[j]
-                )  # for each index in risk set: 1 when outside survial space
-            indices_with_1 = np.where(durations_with_diff_per_date == 1.0)
-            if len(indices_with_1[0]) < n_control:
-                idx = [len(risks_d) - 1] * n_control
-            else:
-                idx = np.random.choice(indices_with_1[0], n_control)
-            samp[j] = risks_d[idx]
-    elif sample_mode == "diff":
-        std = np.std(durations_survival)  # standard deviation of all train set
-        for j, date in enumerate(dates):
-            risks_d = at_risk_dict[date]
-            durations_in_risk = durations_all[risks_d]
-            durations_with_diff_per_date = durations_in_risk
-            for i, duration in enumerate(durations_in_risk):
-                durations_with_diff_per_date[i] = duration >= date + float(
-                    sample_value * std
-                )  # for each index in risk set: 1 when outside survial space
-            indices_with_1 = np.where(durations_with_diff_per_date == 1.0)
+            thresh = float(sample_value * get_thresh[j])
+            # for each index in risk set: 1 when outside survial space
+            indices_with_1 = np.where(durations_in_risk >= date + thresh)
             if len(indices_with_1[0]) < n_control:
                 idx = [len(risks_d) - 1] * n_control
             else:
@@ -115,22 +109,14 @@ def sample_alive_from_dates(
             idx = np.random.choice(a=lengths[j], size=n_control, p=weights)
             samp[j, :] = risks_d[idx]
 
+    # with Timer(name="Baseline", text="{name}: {milliseconds:.3f} ms"):
     # calculate baseline j
+    idx = (np.random.uniform(size=(n_control, dates.size)) * lengths).astype("int")
     samp_baseline = np.empty((dates.size, n_control), dtype=int)
-    for j, date in enumerate(dates):
-        risks_d = at_risk_dict[date]
-        durations_in_risk = durations_all[risks_d]
-        durations_with_diff_per_date = durations_in_risk
-        for i, duration in enumerate(durations_in_risk):
-            durations_with_diff_per_date[i] = duration >= date + float(
-                0
-            )  # for each index in risk set: 1 when outside survial space
-        indices_with_1 = np.where(durations_with_diff_per_date == 1.0)
-        if len(indices_with_1[0]) < n_control:
-            idx = [len(risks_d) - 1] * n_control
-        else:
-            idx = np.random.choice(indices_with_1[0], n_control)
-        samp_baseline[j] = risks_d[idx]
+    samp_baseline.fill(np.nan)
+
+    for it, time in enumerate(dates):
+        samp_baseline[it, :] = at_risk_dict[time][idx[:, it]]
 
     return samp, samp_baseline
 
