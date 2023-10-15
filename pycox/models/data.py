@@ -6,10 +6,8 @@ import numpy.typing as npt
 import pandas as pd
 import torch
 import torchtuples as tt
-
-# for debugging
-# from codetiming import Timer
-# from IPython.core.debugger import set_trace
+from codetiming import Timer
+from IPython.core.debugger import set_trace
 
 
 def std_from_t(ds: pd.DataFrame, t: float):
@@ -70,23 +68,29 @@ def sample_alive_from_dates(
             samp[it, :] = at_risk_dict[time][
                 idx[:, it]
             ]  # give index of randomely chosen element of the alives
-    elif sample_mode in [
-        "diff, " "adadiff"
-    ]:  # same method, only std is adapted in "adadiff"
-        if sample_mode == "adadiff":
-            if sd_per_time is None:
-                raise ValueError("Should provide `sd_pertime` in this case.")
-            std_for_t_i = [
-                std_from_t(sd_per_time, i) for i in dates
-            ]  # rolling standard deviation corresponding to i
-            get_thresh = lambda j: std_for_t_i[j]
-        else:
-            std = np.std(durations_survival)  # standard deviation of all train set
-            get_thresh = lambda j: std
+    elif sample_mode == "adadiff":
+        if sd_per_time is None:
+            raise ValueError("Should provide `sd_pertime` in this case.")
+        std_for_t_i = [
+            std_from_t(sd_per_time, i) for i in dates
+        ]  # rolling standard deviation corresponding to i
         for j, date in enumerate(dates):
             risks_d = at_risk_dict[date]
             durations_in_risk = durations_all[risks_d]
-            thresh = float(sample_value * get_thresh[j])
+            thresh = float(sample_value * std_for_t_i[j])
+            # for each index in risk set: 1 when outside survial space
+            indices_with_1 = np.where(durations_in_risk >= date + thresh)
+            if len(indices_with_1[0]) < n_control:
+                idx = [len(risks_d) - 1] * n_control
+            else:
+                idx = np.random.choice(indices_with_1[0], n_control)
+            samp[j] = risks_d[idx]
+    elif sample_mode == "diff":
+        std = np.std(durations_survival)  # standard deviation of all train set
+        thresh = sample_value * std
+        for j, date in enumerate(dates):
+            risks_d = at_risk_dict[date]
+            durations_in_risk = durations_all[risks_d]
             # for each index in risk set: 1 when outside survial space
             indices_with_1 = np.where(durations_in_risk >= date + thresh)
             if len(indices_with_1[0]) < n_control:
