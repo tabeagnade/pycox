@@ -102,14 +102,10 @@ def sample_alive_from_dates(
         for j, date in enumerate(dates):
             risks_d = at_risk_dict[date]
             durations_in_risk = durations_all[risks_d]
-            weights = [
-                i / np.sum(durations_in_risk)
-                for i in np.asarray(durations_in_risk).astype("float64")
-            ]  # normalizing
-            weights = np.asarray(weights).astype("float64")
-            weights /= (
-                weights.sum()
-            )  # normalizing again (because random.choice is picky)
+            weights = np.asarray(durations_in_risk).astype("float64")
+            # normalizing to probabilities
+            weights /= np.sum(durations_in_risk)
+            weights /= weights.sum()
             idx = np.random.choice(a=lengths[j], size=n_control, p=weights)
             samp[j, :] = risks_d[idx]
 
